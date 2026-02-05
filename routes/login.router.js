@@ -1,14 +1,13 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const loginController = require('../controller/login.controller');
+const loginController = require("../controller/login.controller");
 
-// Login-Routen
-router.post('/', loginController.login); // Login-Anmeldung
+router.post("/", loginController.login);
 
-router.put(
-  '/change-password-erstlogin',
+router.post(
+  "/change-password",
   loginController.authenticateToken,
-  loginController.changePasswordErstLogin
+  loginController.changePassword
 );
 
 module.exports = router;
