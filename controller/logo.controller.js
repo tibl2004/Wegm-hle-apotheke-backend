@@ -1,17 +1,18 @@
+// controllers/logoController.js
 const pool = require("../database/index");
 const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
+const jwt = require("jsonwebtoken");
 
-
+// 🔹 Multer Storage für Logo
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, "../uploads"); // Persistenter Ordner
+    const uploadDir = path.join(__dirname, "../uploads");
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    // Eindeutiger Dateiname, um Überschreiben zu vermeiden
     const uniqueSuffix = Date.now() + "_" + Math.round(Math.random() * 1e9);
     cb(null, "logo_" + uniqueSuffix + path.extname(file.originalname));
   },
@@ -20,67 +21,70 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 const logoController = {
-  // 🔹 Alle Logos abrufen
-  getAllLogos: async (req, res) => {
-    try {
-      const [rows] = await pool.query("SELECT * FROM logos ORDER BY created_at DESC");
-      if (!rows.length) return res.status(404).json({ error: "Keine Logos gefunden." });
 
-      // Volle URL erzeugen
-      const logos = rows.map((row) => ({
-        id: row.id,
-        logoUrl: `${req.protocol}://${req.get("host")}/${row.image}`,
-        created_at: row.created_at,
-        isActive: row.isActive,
-      }));
+  // 🔹 JWT Auth Middleware
+  authenticateToken: (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Kein Token bereitgestellt.' });
 
-      res.json(logos);
-    } catch (err) {
-      console.error("Fehler beim Abrufen der Logos:", err);
-      res.status(500).json({ error: "Fehler beim Abrufen der Logos." });
-    }
+    jwt.verify(token, 'secretKey', (err, user) => {
+      if (err) return res.status(403).json({ error: 'Ungültiger Token.' });
+      req.user = user;
+      // Nur Admin erlaubt
+      if (!user.userTypes.includes("admin")) return res.status(403).json({ error: "Nur Admins dürfen dies tun." });
+      next();
+    });
   },
 
-  // 🔹 Aktuelles Logo abrufen (isActive = 1)
+  // 🔹 Aktuelles Logo abrufen
   getCurrentLogo: async (req, res) => {
     try {
       const [rows] = await pool.query("SELECT * FROM logos WHERE isActive = 1 LIMIT 1");
-      if (!rows.length) return res.status(404).json({ error: "Kein aktives Logo gefunden." });
-
-      const logoPath = rows[0].image;
-      const fullUrl = `${req.protocol}://${req.get("host")}/${logoPath}`;
-      res.json({ logoUrl: fullUrl });
+      if (!rows.length) return res.status(404).json({ error: "Kein aktuelles Logo gefunden." });
+      const fullUrl = `${req.protocol}://${req.get("host")}/${rows[0].image}`;
+      res.json({ logoUrl: fullUrl, id: rows[0].id });
     } catch (err) {
-      console.error("Fehler beim Abrufen des aktuellen Logos:", err);
-      res.status(500).json({ error: "Fehler beim Abrufen des aktuellen Logos." });
+      console.error(err);
+      res.status(500).json({ error: "Logo konnte nicht geladen werden" });
     }
   },
 
-  // 🔹 Neues Logo hochladen
-  uploadLogo: [
-    upload.single("logo"),
-    async (req, res) => {
-      try {
-        if (!req.file) return res.status(400).json({ error: "Keine Datei hochgeladen." });
+  // 🔹 Logo hochladen (Admin only)
+  uploadLogo: async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "Keine Datei hochgeladen." });
 
-        const logoPath = "uploads/" + req.file.filename;
+      const logoPath = `uploads/${req.file.filename}`;
 
-        // Optional: Alle Logos auf inaktiv setzen
-        await pool.query("UPDATE logos SET isActive = 0");
+      // Alte Logos auf inaktiv setzen
+      await pool.query("UPDATE logos SET isActive = 0");
 
-        // Neues Logo einfügen und als aktiv markieren
-        await pool.query("INSERT INTO logos (image, isActive, created_at) VALUES (?, 1, NOW())", [logoPath]);
+      // Neues Logo als aktiv einfügen
+      await pool.query("INSERT INTO logos (image, isActive, created_at) VALUES (?, 1, NOW())", [logoPath]);
 
-        const fullUrl = `${req.protocol}://${req.get("host")}/${logoPath}`;
-        res.status(201).json({ message: "Logo erfolgreich hochgeladen.", logoUrl: fullUrl });
-      } catch (err) {
-        console.error("Fehler beim Hochladen des Logos:", err);
-        res.status(500).json({ error: "Fehler beim Hochladen des Logos." });
-      }
-    },
-  ],
+      const fullUrl = `${req.protocol}://${req.get("host")}/${logoPath}`;
+      res.status(201).json({ message: "Logo erfolgreich hochgeladen.", logoUrl: fullUrl });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Logo Upload fehlgeschlagen" });
+    }
+  },
 
-  uploadMiddleware: upload,
+  // 🔹 Logo löschen (Admin only)
+  deleteLogo: async (req, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query("DELETE FROM logos WHERE id = ?", [id]);
+      res.json({ message: "Logo gelöscht" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Logo löschen fehlgeschlagen" });
+    }
+  },
+
+  // 🔹 Multer Middleware exportieren
+  uploadMiddleware: upload
 };
 
 module.exports = logoController;

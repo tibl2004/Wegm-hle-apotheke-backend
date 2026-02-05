@@ -1,14 +1,24 @@
+// routes/logo.routes.js
 const express = require("express");
 const router = express.Router();
 const logoController = require("../controller/logo.controller");
 
-// Alle Logos abrufen
-router.get("/all", logoController.getAllLogos);
+// GET aktuelles Logo
+router.get("/current", logoController.getCurrentLogo);
 
-// Aktuelles Logo abrufen
-router.get("/", logoController.getCurrentLogo);
+// POST Logo hochladen → Admin only
+router.post(
+  "/",
+  logoController.authenticateToken,
+  logoController.uploadMiddleware.single("logo"),
+  logoController.uploadLogo
+);
 
-// Neues Logo hochladen
-router.post("/", logoController.uploadLogo);
+// DELETE Logo → Admin only
+router.delete(
+  "/:id",
+  logoController.authenticateToken,
+  logoController.deleteLogo
+);
 
 module.exports = router;
