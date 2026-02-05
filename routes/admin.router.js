@@ -1,12 +1,22 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const adminController = require('../controller/admin.controller');
-const upload = require('../middlewares/upload');
+const adminController = require("../controller/admin.controller");
 
-router.post('/create', upload.single('foto'), adminController.createAdmin);
-router.put('/update/:id', upload.single('foto'), adminController.updateAdmin);
-router.get('/', adminController.getAllAdmins);
-router.get('/:id', adminController.getAdminById);
-router.delete('/:id', adminController.deleteAdmin);
+// ==========================
+// 🔹 Admin erstellen (nur einmal)
+// ==========================
+// POST /api/admin/create
+router.post("/create", adminController.createAdmin);
+
+// ==========================
+// 🔹 Admin-Profil abrufen
+// GET /api/admin/profile
+router.get("/profile", adminController.authenticateToken, adminController.getProfile);
+
+// ==========================
+// 🔹 Admin-Profil aktualisieren
+// PUT /api/admin/profile
+// Body: { username?, password?, email? }
+router.put("/profile", adminController.authenticateToken, adminController.updateProfile);
 
 module.exports = router;
