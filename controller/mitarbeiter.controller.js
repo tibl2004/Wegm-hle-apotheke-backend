@@ -94,7 +94,7 @@ const mitarbeiterController = {
   
         const foto = req.file
           ? `uploads/mitarbeiter/${req.file.filename}`
-          : "uploads/mitarbeiter/default.png";
+          : "uploads/mitarbeiter/default.jpg";
   
         // Mitarbeiter einfügen
         const [result] = await pool.query(
