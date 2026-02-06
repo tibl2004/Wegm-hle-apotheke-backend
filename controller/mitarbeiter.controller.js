@@ -63,33 +63,47 @@ const mitarbeiterController = {
     upload.single("foto")(req, res, async (err) => {
       try {
         if (err) return res.status(400).json({ error: err.message });
-
-        const { vorname, nachname, funktionen } = req.body;
-        if (!vorname || !nachname || !Array.isArray(funktionen))
+  
+        const { vorname, nachname } = req.body;
+        let { funktionen } = req.body;
+  
+        // JSON-String aus Frontend in Array umwandeln
+        try {
+          funktionen = typeof funktionen === "string" ? JSON.parse(funktionen) : funktionen;
+        } catch {
+          return res.status(400).json({ error: "Ungültige Funktionen" });
+        }
+  
+        if (!vorname || !nachname || !Array.isArray(funktionen) || funktionen.length === 0) {
           return res.status(400).json({ error: "Ungültige Daten" });
-
+        }
+  
         const foto = req.file
           ? `uploads/mitarbeiter/${req.file.filename}`
           : "uploads/mitarbeiter/default.png";
-
+  
+        // Mitarbeiter einfügen
         const [result] = await pool.query(
           "INSERT INTO mitarbeiter (vorname, nachname, foto) VALUES (?, ?, ?)",
           [vorname, nachname, foto]
         );
-
+  
+        // Funktionen einfügen
         for (const f of funktionen) {
           await pool.query(
-            "INSERT INTO mitarbeiter_funktionen VALUES (?, ?)",
+            "INSERT INTO mitarbeiter_funktionen (mitarbeiter_id, funktion_id) VALUES (?, ?)",
             [result.insertId, f]
           );
         }
-
+  
         res.status(201).json({ message: "Erstellt", id: result.insertId });
       } catch (e) {
+        console.error(e);
         res.status(500).json({ error: "Create fehlgeschlagen" });
       }
     });
   },
+  
 
   // ===============================
   // ✏️ UPDATE + OPTIONAL FOTO
