@@ -36,25 +36,39 @@ const mitarbeiterController = {
   // ===============================
   getAll: async (req, res) => {
     try {
-      const [rows] = await pool.query(`
-        SELECT m.id, m.vorname, m.nachname, m.foto,
-        GROUP_CONCAT(f.name) AS funktionen
-        FROM mitarbeiter m
-        LEFT JOIN mitarbeiter_funktionen mf ON m.id = mf.mitarbeiter_id
-        LEFT JOIN funktionen f ON mf.funktion_id = f.id
-        GROUP BY m.id
+      // Alle Mitarbeiter laden
+      const [mitarbeiterRows] = await pool.query("SELECT * FROM mitarbeiter");
+  
+      // Funktionen für alle Mitarbeiter laden
+      const [funktionenRows] = await pool.query(`
+        SELECT mf.mitarbeiter_id, f.id AS funktion_id, f.name
+        FROM mitarbeiter_funktionen mf
+        JOIN funktionen f ON mf.funktion_id = f.id
       `);
-
-      const result = rows.map(m => ({
-        ...m,
-        foto: `${req.protocol}://${req.get("host")}/${m.foto}`
+  
+      // Map: mitarbeiter_id => funktionen array
+      const funktionenMap = {};
+      for (const f of funktionenRows) {
+        if (!funktionenMap[f.mitarbeiter_id]) funktionenMap[f.mitarbeiter_id] = [];
+        funktionenMap[f.mitarbeiter_id].push({ id: f.funktion_id, name: f.name });
+      }
+  
+      // Ergebnis zusammenbauen
+      const result = mitarbeiterRows.map(m => ({
+        id: m.id,
+        vorname: m.vorname,
+        nachname: m.nachname,
+        foto: `${req.protocol}://${req.get("host")}/${m.foto}`,
+        funktionen: funktionenMap[m.id] || [],
       }));
-
+  
       res.json(result);
     } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Mitarbeiter konnten nicht geladen werden" });
     }
   },
+  
 
   // ===============================
   // ➕ CREATE MIT FOTO
