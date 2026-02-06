@@ -1,20 +1,22 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const mitarbeiterController = require('../controller/mitarbeiter.controller');
 
-// 🔹 Alle Mitarbeiter abrufen
-router.get('/', mitarbeiterController.getAllMitarbeiter);
+const mitarbeiterController = require("../controller/mitarbeiter.controller");
 
-// 🔹 Einzelnen Mitarbeiter abrufen
-router.get('/:id', mitarbeiterController.getMitarbeiterById);
+// ===============================
+// 👩‍⚕️ MITARBEITER ROUTES (CRUD)
+// ===============================
 
-// 🔹 Mitarbeiter erstellen
-router.post('/', mitarbeiterController.createMitarbeiter);
+// 📥 GET – alle Mitarbeiter
+router.get("/", mitarbeiterController.getAll);
 
-// 🔹 Mitarbeiter aktualisieren
-router.put('/:id', mitarbeiterController.updateMitarbeiter);
+// ➕ POST – Mitarbeiter erstellen (mit optionalem Foto)
+router.post("/", mitarbeiterController.create);
 
-// 🔹 Mitarbeiter löschen
-router.delete('/:id', mitarbeiterController.deleteMitarbeiter);
+// ✏️ PUT – Mitarbeiter updaten (optional neues Foto)
+router.put("/:id", mitarbeiterController.update);
+
+// ❌ DELETE – Mitarbeiter + Foto löschen
+router.delete("/:id", mitarbeiterController.delete);
 
 module.exports = router;
