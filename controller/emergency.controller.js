@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 
 const emergencyController = {
 
-  // 🔐 JWT Auth (Admin)
+  // 🔐 JWT Auth Middleware (Admin only)
   authenticateToken: (req, res, next) => {
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
@@ -12,15 +12,17 @@ const emergencyController = {
 
     jwt.verify(token, "secretKey", (err, user) => {
       if (err) return res.status(403).json({ error: "Ungültiger Token." });
+
       if (!user.userTypes?.includes("admin")) {
         return res.status(403).json({ error: "Nur Admins." });
       }
+
       req.user = user;
       next();
     });
   },
 
-  // 📞 Alle Nummern (nach Reihenfolge)
+  // 📞 Alle Notfallnummern abrufen
   getAll: async (req, res) => {
     try {
       const [rows] = await pool.query(
@@ -28,12 +30,12 @@ const emergencyController = {
       );
       res.json(rows);
     } catch (err) {
-      console.error("ERROR getAll:", err); // <-- HIER
+      console.error("ERROR getAll:", err);
       res.status(500).json({ error: "Laden fehlgeschlagen." });
     }
-  },  
+  },
 
-  // ➕ Neue Nummer (automatisch ans Ende)
+  // ➕ Neue Nummer hinzufügen
   create: async (req, res) => {
     try {
       const { title, number } = req.body;
@@ -52,20 +54,13 @@ const emergencyController = {
 
       res.status(201).json({ message: "Erstellt." });
     } catch (err) {
+      console.error("ERROR create:", err);
       res.status(500).json({ error: "Erstellen fehlgeschlagen." });
     }
   },
 
-  // 🔄 Reihenfolge speichern (Drag & Drop)
+  // 🔄 Reihenfolge aktualisieren (Drag & Drop)
   updateOrder: async (req, res) => {
-    /**
-     * Erwartet:
-     * [
-     *   { id: 3, position: 1 },
-     *   { id: 1, position: 2 },
-     *   { id: 5, position: 3 }
-     * ]
-     */
     try {
       const items = req.body;
       if (!Array.isArray(items)) {
@@ -73,42 +68,63 @@ const emergencyController = {
       }
 
       const conn = await pool.getConnection();
-      await conn.beginTransaction();
+      try {
+        await conn.beginTransaction();
 
-      for (const item of items) {
-        await conn.query(
-          "UPDATE emergency_numbers SET position = ? WHERE id = ?",
-          [item.position, item.id]
-        );
+        for (const item of items) {
+          await conn.query(
+            "UPDATE emergency_numbers SET position = ? WHERE id = ?",
+            [item.position, item.id]
+          );
+        }
+
+        await conn.commit();
+        res.json({ message: "Reihenfolge gespeichert." });
+      } catch (err) {
+        await conn.rollback();
+        console.error("ERROR updateOrder:", err);
+        res.status(500).json({ error: "Reihenfolge speichern fehlgeschlagen." });
+      } finally {
+        conn.release();
       }
-
-      await conn.commit();
-      conn.release();
-
-      res.json({ message: "Reihenfolge gespeichert." });
     } catch (err) {
+      console.error("ERROR updateOrder outer:", err);
       res.status(500).json({ error: "Reihenfolge speichern fehlgeschlagen." });
     }
   },
 
-  // ✏️ Update
+  // ✏️ Nummer aktualisieren
   update: async (req, res) => {
-    const { id } = req.params;
-    const { title, number } = req.body;
+    try {
+      const { id } = req.params;
+      const { title, number } = req.body;
 
-    await pool.query(
-      "UPDATE emergency_numbers SET title = ?, number = ? WHERE id = ?",
-      [title, number, id]
-    );
+      if (!title || !number) {
+        return res.status(400).json({ error: "Titel & Nummer erforderlich." });
+      }
 
-    res.json({ message: "Aktualisiert." });
+      await pool.query(
+        "UPDATE emergency_numbers SET title = ?, number = ? WHERE id = ?",
+        [title, number, id]
+      );
+
+      res.json({ message: "Aktualisiert." });
+    } catch (err) {
+      console.error("ERROR update:", err);
+      res.status(500).json({ error: "Update fehlgeschlagen." });
+    }
   },
 
-  // 🗑️ Löschen
+  // 🗑️ Nummer löschen
   delete: async (req, res) => {
-    const { id } = req.params;
-    await pool.query("DELETE FROM emergency_numbers WHERE id = ?", [id]);
-    res.json({ message: "Gelöscht." });
+    try {
+      const { id } = req.params;
+      await pool.query("DELETE FROM emergency_numbers WHERE id = ?", [id]);
+      res.json({ message: "Gelöscht." });
+    } catch (err) {
+      console.error("ERROR delete:", err);
+      res.status(500).json({ error: "Löschen fehlgeschlagen." });
+    }
   }
 };
 
