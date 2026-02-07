@@ -28,9 +28,10 @@ const emergencyController = {
       );
       res.json(rows);
     } catch (err) {
+      console.error("ERROR getAll:", err); // <-- HIER
       res.status(500).json({ error: "Laden fehlgeschlagen." });
     }
-  },
+  },  
 
   // ➕ Neue Nummer (automatisch ans Ende)
   create: async (req, res) => {
