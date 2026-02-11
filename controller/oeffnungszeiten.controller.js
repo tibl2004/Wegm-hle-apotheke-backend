@@ -2,187 +2,216 @@ const pool = require("../database/index");
 const jwt = require("jsonwebtoken");
 
 const oeffnungszeitenController = {
-  // 🔒 Middleware: Token prüfen
+
+  // 🔐 JWT Middleware
   authenticateToken: (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Kein Token bereitgestellt." });
 
-    if (!token) return res.status(401).json({ error: 'Kein Token bereitgestellt.' });
-
-    jwt.verify(token, 'secretKey', (err, user) => {
-      if (err) {
-        console.error('Token Überprüfung fehlgeschlagen:', err);
-        return res.status(403).json({ error: 'Ungültiger Token.' });
-      }
+    jwt.verify(token, "secretKey", (err, user) => {
+      if (err) return res.status(403).json({ error: "Ungültiger Token." });
       req.user = user;
       next();
     });
   },
 
-  // ➕ Öffnungszeiten erstellen
-  createOeffnungszeiten: async (req, res) => {
+  // ===============================
+  // 🔹 GET Öffnungszeiten (komprimiert)
+  // ===============================
+  getOeffnungszeiten: async (req, res) => {
     try {
-      const { userTypes } = req.user;
-      if (!userTypes || !userTypes.includes("vorstand")) {
-        return res.status(403).json({ error: "Nur Vorstände dürfen Öffnungszeiten erstellen." });
-      }
-
-      const {
-        montag_oeffnet, montag_schliesst,
-        dienstag_oeffnet, dienstag_schliesst,
-        mittwoch_oeffnet, mittwoch_schliesst,
-        donnerstag_oeffnet, donnerstag_schliesst,
-        freitag_oeffnet, freitag_schliesst,
-        samstag_oeffnet, samstag_schliesst,
-        sonntag_oeffnet, sonntag_schliesst
-      } = req.body;
-
-      // Prüfen, ob alle Felder gesetzt sind
-      const alleFelder = [
-        montag_oeffnet, montag_schliesst,
-        dienstag_oeffnet, dienstag_schliesst,
-        mittwoch_oeffnet, mittwoch_schliesst,
-        donnerstag_oeffnet, donnerstag_schliesst,
-        freitag_oeffnet, freitag_schliesst,
-        samstag_oeffnet, samstag_schliesst,
-        sonntag_oeffnet, sonntag_schliesst
-      ];
-
-      if (alleFelder.some(f => !f)) {
-        return res.status(400).json({ error: "Bitte alle Öffnet- und Schließt-Zeiten angeben." });
-      }
-
-      await pool.query(
-        `INSERT INTO oeffnungszeiten 
-        (montag_oeffnet, montag_schliesst,
-         dienstag_oeffnet, dienstag_schliesst,
-         mittwoch_oeffnet, mittwoch_schliesst,
-         donnerstag_oeffnet, donnerstag_schliesst,
-         freitag_oeffnet, freitag_schliesst,
-         samstag_oeffnet, samstag_schliesst,
-         sonntag_oeffnet, sonntag_schliesst)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        alleFelder
+      const [rows] = await pool.query(
+        `SELECT *
+         FROM oeffnungszeiten
+         ORDER BY FIELD(wochentag,'Mo','Di','Mi','Do','Fr','Sa','So'), von`
       );
 
-      res.status(201).json({ message: "Öffnungszeiten erfolgreich erstellt." });
-    } catch (error) {
-      console.error("Fehler beim Erstellen der Öffnungszeiten:", error);
-      res.status(500).json({ error: "Fehler beim Erstellen der Öffnungszeiten." });
+      const WOCHEN_ORDER = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+      const fmt = (t) => (t ? t.slice(0, 5) : null);
+
+      const tage = {};
+
+      for (const row of rows) {
+        if (!tage[row.wochentag]) tage[row.wochentag] = [];
+
+        if (row.von && row.bis) {
+          tage[row.wochentag].push({
+            von: fmt(row.von),
+            bis: fmt(row.bis),
+          });
+        }
+      }
+
+      const compressDays = (days) => {
+        const sorted = [...days].sort(
+          (a, b) => WOCHEN_ORDER.indexOf(a) - WOCHEN_ORDER.indexOf(b)
+        );
+
+        const ranges = [];
+        let start = sorted[0];
+        let prev = sorted[0];
+
+        for (let i = 1; i < sorted.length; i++) {
+          const curr = sorted[i];
+          if (WOCHEN_ORDER.indexOf(curr) === WOCHEN_ORDER.indexOf(prev) + 1) {
+            prev = curr;
+          } else {
+            ranges.push(start === prev ? start : `${start} – ${prev}`);
+            start = curr;
+            prev = curr;
+          }
+        }
+
+        ranges.push(start === prev ? start : `${start} – ${prev}`);
+        return ranges;
+      };
+
+      const patternGroups = {};
+
+      for (const wt of Object.keys(tage)) {
+        const times = tage[wt];
+        const pattern =
+          times.length === 0
+            ? "geschlossen"
+            : times.map(t => `${t.von} – ${t.bis}`).join("|");
+
+        if (!patternGroups[pattern]) patternGroups[pattern] = [];
+        patternGroups[pattern].push(wt);
+      }
+
+      const output = [];
+
+      for (const pattern of Object.keys(patternGroups)) {
+        output.push({
+          wochentage: compressDays(patternGroups[pattern]),
+          geschlossen: pattern === "geschlossen",
+          zeiten: pattern === "geschlossen"
+            ? ["geschlossen"]
+            : pattern.split("|"),
+        });
+      }
+
+      res.status(200).json(output);
+
+    } catch (err) {
+      console.error("Fehler beim Abrufen:", err);
+      res.status(500).json({ error: "Fehler beim Abrufen der Öffnungszeiten." });
     }
   },
 
-  // 🔄 Öffnungszeiten aktualisieren
-  updateOeffnungszeiten: async (req, res) => {
+  // ===============================
+  // 🔹 GET für Bearbeitung (unkomprimiert)
+  // ===============================
+  getOeffzeitenForEdit: async (req, res) => {
     try {
-      const { userTypes } = req.user;
-      if (!userTypes || !userTypes.includes("vorstand")) {
-        return res.status(403).json({ error: "Nur Vorstände dürfen Öffnungszeiten aktualisieren." });
-      }
-
-      const id = req.params.id;
-      const {
-        montag_oeffnet, montag_schliesst,
-        dienstag_oeffnet, dienstag_schliesst,
-        mittwoch_oeffnet, mittwoch_schliesst,
-        donnerstag_oeffnet, donnerstag_schliesst,
-        freitag_oeffnet, freitag_schliesst,
-        samstag_oeffnet, samstag_schliesst,
-        sonntag_oeffnet, sonntag_schliesst
-      } = req.body;
-
-      const [existiert] = await pool.query("SELECT id FROM oeffnungszeiten WHERE id = ?", [id]);
-      if (existiert.length === 0) return res.status(404).json({ error: "Eintrag nicht gefunden." });
-
-      const alleFelder = [
-        montag_oeffnet, montag_schliesst,
-        dienstag_oeffnet, dienstag_schliesst,
-        mittwoch_oeffnet, mittwoch_schliesst,
-        donnerstag_oeffnet, donnerstag_schliesst,
-        freitag_oeffnet, freitag_schliesst,
-        samstag_oeffnet, samstag_schliesst,
-        sonntag_oeffnet, sonntag_schliesst
-      ];
-
-      await pool.query(
-        `UPDATE oeffnungszeiten
-         SET montag_oeffnet=?, montag_schliesst=?,
-             dienstag_oeffnet=?, dienstag_schliesst=?,
-             mittwoch_oeffnet=?, mittwoch_schliesst=?,
-             donnerstag_oeffnet=?, donnerstag_schliesst=?,
-             freitag_oeffnet=?, freitag_schliesst=?,
-             samstag_oeffnet=?, samstag_schliesst=?,
-             sonntag_oeffnet=?, sonntag_schliesst=?,
-             aktualisiert_am=NOW()
-         WHERE id=?`,
-        [...alleFelder, id]
+      const [rows] = await pool.query(
+        `SELECT *
+         FROM oeffnungszeiten
+         ORDER BY FIELD(wochentag,'Mo','Di','Mi','Do','Fr','Sa','So'), von`
       );
 
-      res.status(200).json({ message: "Öffnungszeiten erfolgreich aktualisiert." });
-    } catch (error) {
-      console.error("Fehler beim Aktualisieren der Öffnungszeiten:", error);
-      res.status(500).json({ error: "Fehler beim Aktualisieren der Öffnungszeiten." });
+      res.status(200).json(rows);
+
+    } catch (err) {
+      console.error("Fehler beim Abrufen für Bearbeiten:", err);
+      res.status(500).json({ error: "Fehler beim Abrufen." });
     }
   },
 
-  // ❌ Öffnungszeiten löschen
-  deleteOeffnungszeiten: async (req, res) => {
+  // ===============================
+  // 🔹 UPDATE Zeitblock
+  // ===============================
+  updateZeitblock: async (req, res) => {
     try {
-      const { userTypes } = req.user;
-      if (!userTypes || !userTypes.includes("vorstand")) {
-        return res.status(403).json({ error: "Nur Vorstände dürfen Öffnungszeiten löschen." });
-      }
+      const { id } = req.params;
+      const { wochentag, von, bis } = req.body;
 
-      const id = req.params.id;
-      const [existiert] = await pool.query("SELECT id FROM oeffnungszeiten WHERE id = ?", [id]);
-      if (existiert.length === 0) return res.status(404).json({ error: "Eintrag nicht gefunden." });
+      const [rows] = await pool.query(
+        "SELECT * FROM oeffnungszeiten WHERE id = ?",
+        [id]
+      );
 
-      await pool.query("DELETE FROM oeffnungszeiten WHERE id = ?", [id]);
-      res.status(200).json({ message: "Öffnungszeiten erfolgreich gelöscht." });
-    } catch (error) {
-      console.error("Fehler beim Löschen der Öffnungszeiten:", error);
-      res.status(500).json({ error: "Fehler beim Löschen der Öffnungszeiten." });
+      if (rows.length === 0)
+        return res.status(404).json({ error: "Eintrag nicht gefunden" });
+
+      await pool.query(
+        "UPDATE oeffnungszeiten SET wochentag = ?, von = ?, bis = ? WHERE id = ?",
+        [
+          wochentag || rows[0].wochentag,
+          von || null,
+          bis || null,
+          id
+        ]
+      );
+
+      const [updatedRows] = await pool.query(
+        "SELECT * FROM oeffnungszeiten WHERE id = ?",
+        [id]
+      );
+
+      res.status(200).json({
+        message: "Zeitblock aktualisiert",
+        zeitblock: updatedRows[0]
+      });
+
+    } catch (err) {
+      console.error("Fehler beim Aktualisieren:", err);
+      res.status(500).json({ error: "Fehler beim Aktualisieren" });
     }
   },
 
- // 📖 Öffnungszeiten abrufen
-getOeffnungszeiten: async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT * FROM oeffnungszeiten ORDER BY id DESC LIMIT 1`
-    );
+  // ===============================
+  // 🔹 ADD Zeitblock
+  // ===============================
+  addZeitblock: async (req, res) => {
+    try {
+      const { wochentag, von, bis } = req.body;
 
-    if (rows.length === 0) return res.status(404).json({ error: "Keine Öffnungszeiten gefunden." });
+      if (!wochentag)
+        return res.status(400).json({ error: "Wochentag erforderlich." });
 
-    const zeiten = rows[0];
+      const closed = (!von || !bis);
 
-   
-    const formatZeit = (zeit) => (zeit === "00:00:00" ? "GESCHLOSSEN" : zeit);
+      await pool.query(
+        "INSERT INTO oeffnungszeiten (wochentag, von, bis) VALUES (?, ?, ?)",
+        [
+          wochentag,
+          closed ? null : von,
+          closed ? null : bis
+        ]
+      );
 
-    const oeffnungszeiten = {
-      montag_oeffnet: formatZeit(zeiten.montag_oeffnet),
-      montag_schliesst: formatZeit(zeiten.montag_schliesst),
-      dienstag_oeffnet: formatZeit(zeiten.dienstag_oeffnet),
-      dienstag_schliesst: formatZeit(zeiten.dienstag_schliesst),
-      mittwoch_oeffnet: formatZeit(zeiten.mittwoch_oeffnet),
-      mittwoch_schliesst: formatZeit(zeiten.mittwoch_schliesst),
-      donnerstag_oeffnet: formatZeit(zeiten.donnerstag_oeffnet),
-      donnerstag_schliesst: formatZeit(zeiten.donnerstag_schliesst),
-      freitag_oeffnet: formatZeit(zeiten.freitag_oeffnet),
-      freitag_schliesst: formatZeit(zeiten.freitag_schliesst),
-      samstag_oeffnet: formatZeit(zeiten.samstag_oeffnet),
-      samstag_schliesst: formatZeit(zeiten.samstag_schliesst),
-      sonntag_oeffnet: formatZeit(zeiten.sonntag_oeffnet),
-      sonntag_schliesst: formatZeit(zeiten.sonntag_schliesst),
-    };
+      res.status(201).json({ message: "Zeitblock hinzugefügt" });
 
-    res.status(200).json({ id: zeiten.id, oeffnungszeiten });
-  } catch (error) {
-    console.error("Fehler beim Abrufen der Öffnungszeiten:", error);
-    res.status(500).json({ error: "Fehler beim Abrufen der Öffnungszeiten." });
+    } catch (err) {
+      console.error("Fehler beim Hinzufügen:", err);
+      res.status(500).json({ error: "Fehler beim Speichern." });
+    }
+  },
+
+  // ===============================
+  // 🔹 DELETE Zeitblock
+  // ===============================
+  deleteZeitblock: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const [result] = await pool.query(
+        "DELETE FROM oeffnungszeiten WHERE id = ?",
+        [id]
+      );
+
+      if (result.affectedRows === 0)
+        return res.status(404).json({ error: "Eintrag nicht gefunden." });
+
+      res.status(200).json({ message: "Zeitblock gelöscht" });
+
+    } catch (err) {
+      console.error("Fehler beim Löschen:", err);
+      res.status(500).json({ error: "Fehler beim Löschen." });
+    }
   }
-}
-
 };
 
 module.exports = oeffnungszeitenController;

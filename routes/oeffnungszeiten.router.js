@@ -1,20 +1,49 @@
 const express = require("express");
 const router = express.Router();
+
 const oeffnungszeitenController = require("../controller/oeffnungszeiten.controller");
 
-// 🔒 Middleware: Token prüfen
-const authenticate = oeffnungszeitenController.authenticateToken;
+// ===============================
+// 🔓 PUBLIC ROUTES
+// ===============================
 
-// ➕ Öffnungszeiten erstellen (nur Vorstand)
-router.post("/", authenticate, oeffnungszeitenController.createOeffnungszeiten);
+// Öffnungszeiten (komprimiert für Website)
+router.get(
+  "/",
+  oeffnungszeitenController.getOeffnungszeiten
+);
 
-// 🔄 Öffnungszeiten aktualisieren (nur Vorstand)
-router.put("/:id", authenticate, oeffnungszeitenController.updateOeffnungszeiten);
 
-// ❌ Öffnungszeiten löschen (nur Vorstand)
-router.delete("/:id", authenticate, oeffnungszeitenController.deleteOeffnungszeiten);
+// ===============================
+// 🔐 PROTECTED ROUTES (JWT)
+// ===============================
 
-// 📖 Öffnungszeiten abrufen (öffentlich oder authentifiziert)
-router.get("/", oeffnungszeitenController.getOeffnungszeiten);
+// Alle Öffnungszeiten für Admin-Bearbeitung
+router.get(
+  "/edit",
+  oeffnungszeitenController.authenticateToken,
+  oeffnungszeitenController.getOeffzeitenForEdit
+);
+
+// Zeitblock hinzufügen
+router.post(
+  "/",
+  oeffnungszeitenController.authenticateToken,
+  oeffnungszeitenController.addZeitblock
+);
+
+// Zeitblock aktualisieren
+router.put(
+  "/:id",
+  oeffnungszeitenController.authenticateToken,
+  oeffnungszeitenController.updateZeitblock
+);
+
+// Zeitblock löschen
+router.delete(
+  "/:id",
+  oeffnungszeitenController.authenticateToken,
+  oeffnungszeitenController.deleteZeitblock
+);
 
 module.exports = router;
