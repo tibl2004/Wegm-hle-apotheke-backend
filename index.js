@@ -37,6 +37,7 @@ const bannerRouter = require('./routes/banner.router');
 const emergencyRouter = require('./routes/emergency.router');
 const contactRouter = require('./routes/contact.router');
 const kategorienRouter = require('./routes/kategorien.router');
+const dienstleistungenRouter = require('./routes/dienstleistungen.router');
 
 
 app.use('/api/login', loginRouter);
@@ -51,6 +52,7 @@ app.use('/api/banner', bannerRouter);
 app.use('/api/emergency', emergencyRouter);
 app.use('/api/contact', contactRouter);
 app.use('/api/kategorien', kategorienRouter);
+app.use('/api/dienstleistungen', dienstleistungenRouter);
 
 
 // 🔹 Preflight für alle Anfragen (optional, aber sicher)
